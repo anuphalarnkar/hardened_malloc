@@ -37,16 +37,13 @@ endif
 
 CFLAGS := $(CFLAGS) -std=c17 $(SHARED_FLAGS) -Wmissing-prototypes -Wstrict-prototypes
 CXXFLAGS := $(CXXFLAGS) -std=c++17 -fsized-deallocation $(SHARED_FLAGS)
-LDFLAGS := $(LDFLAGS) -Wl,-O1,--as-needed,-z,defs,-z,relro,-z,now,-z,nodlopen,-z,text
 
 SOURCES := chacha.c h_malloc.c memory.c pages.c random.c util.c
 OBJECTS := $(SOURCES:.c=.o)
 
 ifeq ($(CONFIG_CXX_ALLOCATOR),true)
-    # make sure LTO is compatible in case CC and CXX don't match (such as clang and g++)
     CXX := $(CC)
     LDLIBS += -lstdc++
-
     SOURCES += new.cc
     OBJECTS += new.o
 endif
@@ -110,12 +107,18 @@ CPPFLAGS += \
     -DCONFIG_STATS=$(CONFIG_STATS) \
     -DCONFIG_SELF_INIT=$(CONFIG_SELF_INIT)
 
-$(OUT)/libhardened_malloc$(SUFFIX).so: $(OBJECTS) | $(OUT)
-	$(CC) $(CFLAGS) $(LDFLAGS) -shared $^ $(LDLIBS) -o $@
+AR := gcc-ar
 
+# Rule to create the static library
+$(OUT)/libhardened_malloc$(SUFFIX).a: $(OBJECTS) | $(OUT)
+	@echo "Creating static library..."
+	$(AR) rcs $@ $(OBJECTS)
+
+# Create the output directory if it doesn't exist
 $(OUT):
 	mkdir -p $(OUT)
 
+# Compilation rules
 $(OUT)/chacha.o: chacha.c chacha.h util.h $(CONFIG_FILE) | $(OUT)
 	$(COMPILE.c) $(OUTPUT_OPTION) $<
 $(OUT)/h_malloc.o: h_malloc.c include/h_malloc.h mutex.h memory.h pages.h random.h util.h $(CONFIG_FILE) | $(OUT)
@@ -138,11 +141,12 @@ tidy:
 	clang-tidy --extra-arg=-std=c++17 $(filter %.cc,$(SOURCES)) -- $(CPPFLAGS)
 
 clean:
-	rm -f $(OUT)/libhardened_malloc.so $(OBJECTS)
+	rm -f $(OUT)/libhardened_malloc$(SUFFIX).a $(OBJECTS)
 	$(MAKE) -C test/ clean
 
-test: $(OUT)/libhardened_malloc$(SUFFIX).so
+test: $(OUT)/libhardened_malloc$(SUFFIX).a
 	$(MAKE) -C test/
 	python3 -m unittest discover --start-directory test/
 
 .PHONY: check clean tidy test
+
